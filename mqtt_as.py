@@ -521,11 +521,22 @@ class MQTTClient(MQTT_base):
             self._ping_interval = p_i
         self._in_connect = False
         self._has_connected = False  # Define 'Clean Session' value to use.
+        self._paused = False
+
+    def pause(self):
+        self._paused = True
+
+    def resume(self):
+        self._paused = None  # will get True once resumed
 
     async def wifi_connect(self):
         s = self._sta_if
         if ESP32:
-            s.disconnect()
+            if self._paused is False:
+                s.disconnect()
+            elif self._paused is None:  # self._paused=True would never get here
+                s.active(True)
+                self._paused = False
             esp32_pause()  # Otherwise sometimes fails to reconnect and hangs
             await asyncio.sleep(1)
             s.connect(self._ssid, self._wifi_pw)
@@ -644,7 +655,16 @@ class MQTTClient(MQTT_base):
     # broker connection. Must handle conditions at edge of WiFi range.
     async def _keep_connected(self):
         while True:
+            if self._paused is True and self.isconnected() is False:  # wait until not paused, will reconnect then
+                await asyncio.sleep(1)
+                continue
             if self.isconnected():  # Pause for 1 second
+                if self._paused is True:  # if connected and paused stop connection and disconnect wifi
+                    self.disconnect()
+                    await asyncio.sleep_ms(500)
+                    self._sta_if.disconnect()
+                    self._sta_if.active(False)
+                    continue
                 if SONOFF:
                     for _ in range(10):
                         sleep_ms(10)  # Prevents spurious WiFi dropouts
@@ -653,7 +673,8 @@ class MQTTClient(MQTT_base):
                     await asyncio.sleep(1)
                 gc.collect()
             else:
-                self._sta_if.disconnect()
+                if self._paused is False:
+                    self._sta_if.disconnect()
                 await asyncio.sleep(1)
                 try:
                     await self.wifi_connect()
