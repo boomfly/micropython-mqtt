@@ -29,7 +29,7 @@ VERSION = (0, 7, 0)
 
 # Default short delay for good SynCom throughput (avoid sleep(0) with SynCom).
 _DEFAULT_MS = const(20)
-_SOCKET_POLL_DELAY = const(5)  # 100ms added greatly to publish latency
+_SOCKET_POLL_DELAY = const(10)  # 100ms added greatly to publish latency
 
 
 # Default "do little" coro for optional user replacement
@@ -255,7 +255,7 @@ class MQTT_base:
         resp = await self._as_read(4)
         self.dprint('Connected to broker.')  # Got CONNACK
         if resp[3] != 0 or resp[0] != 0x20 or resp[1] != 0x02:
-            raise OSError(-1)  # Bad CONNACK e.g. authentication fail.
+            raise OSError(-1, "Bad CONNACK")  # Bad CONNACK e.g. authentication fail.
 
     async def _ping(self):
         async with self.lock:
@@ -535,6 +535,7 @@ class MQTTClient(MQTT_base):
         if self._isconnected:
             self._isconnected = False
             self.close()
+            asyncio.create_task(self._connect_handler(False))
 
     # Await broker connection.
     async def _connection(self):
